@@ -11,12 +11,12 @@ const passport = require('passport');
 const errorHandler = require('errorhandler');
 const bearerToken = require('express-bearer-token');
 
-const passportConfig = require('./config/passport');
 
 const authController = require('./controllers/auth');
 
 dotenv.config();
 
+const passportConfig = require('./config/passport');
 const app = express();
 
 mongoose.connect(process.env.MONGODB_URI || '', {useNewUrlParser: true});
@@ -59,6 +59,11 @@ if (process.env.NODE_ENV !== 'production') {
 app.post('/auth/signup', authController.postSignUp);
 app.post('/auth/signin', authController.postSignIn);
 app.get('/auth/signout', authController.getSignOut);
+app.get('/auth/google', passport.authenticate('google', { scope: 'profile email' }));
+app.get('/auth/google/callback', passport.authenticate('google', null), (req, res) => {
+  console.log(res.body);
+  return res.status(200).send('success');
+});
 
 app.listen(app.get('port'), () => {
   console.log('%s App is running at http://localhost:%d', chalk.green('✓'), app.get('port'));
