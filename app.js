@@ -4,19 +4,17 @@ const expressValidator = require('express-validator');
 const compression = require('compression');
 const MongoStore = require('connect-mongo')(session);
 const chalk = require('chalk');
-const dotenv = require('dotenv');
+const dotenv = require('dotenv'); dotenv.config();
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const passport = require('passport');
 const errorHandler = require('errorhandler');
 const bearerToken = require('express-bearer-token');
-
-
 const authController = require('./controllers/auth');
 
-dotenv.config();
+require('./config/passport');
 
-const passportConfig = require('./config/passport');
+
 const app = express();
 
 mongoose.connect(process.env.MONGODB_URI || '', {useNewUrlParser: true});
@@ -28,6 +26,12 @@ mongoose.connection.on('error', err => {
 
 // Express config
 app.set('port', process.env.PORT || 8080);
+app.use(function(req, res, next) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type, Authorization');
+  next();
+});
 app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
@@ -35,7 +39,7 @@ app.use(expressValidator());
 app.use(session({
   resave: true,
   saveUninitialized: true,
-  secret: 'test secret',
+  secret: process.env.SECRET_KEY,
   cookie: { maxAge: 1209600000 },
   store: new MongoStore({
     url: process.env.MONGODB_URI,
@@ -56,13 +60,55 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-app.post('/auth/signup', authController.postSignUp);
-app.post('/auth/signin', authController.postSignIn);
-app.get('/auth/signout', authController.getSignOut);
+/**
+ * Express middleware
+ */
+app.use((req, res, next) => {
+  console.log('Middleware is executed', req.user)
+  const isAuthenticated = req.isAuthenticated();
+  res.locals.isAuthenticated = isAuthenticated;
+  res.locals.user = req.user;
+  next();
+});
+
+app.use((req, res, next) => {
+  // After successful login, redirect back to the intended page
+  console.log(req.path)
+  if (!req.user &&
+      req.path !== '/signin' &&
+      req.path !== '/signup' &&
+      !req.path.match(/^\/auth/) &&
+      !req.path.match(/\./)) {
+    req.session.returnTo = req.originalUrl;
+  } else if (req.user && req.path.match(/^\/api/)) {
+    req.session.returnTo = req.originalUrl;
+  }
+  next();
+});
+
+
+
+app.post('/signup', authController.postSignUp);
+app.post('/signin', authController.postSignIn);
+app.get('/signout', passport.authenticate('jwt', { session: false }), authController.getSignOut);
+
+/* Google */
 app.get('/auth/google', passport.authenticate('google', { scope: 'profile email' }));
-app.get('/auth/google/callback', passport.authenticate('google', null), (req, res) => {
-  console.log(res.body);
-  return res.status(200).send('success');
+app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/signin' } ), (req, res) => {
+  res.setHeader('x-access-token', res.locals.user.token);
+  res.setHeader('Authorization', 'Bearer ' + res.locals.user.token);
+  res.redirect(req.session.returnTo || '/');
+});
+
+/* VK */
+app.get('/auth/vkontakte', passport.authenticate('vkontakte',{ scope: ['status', 'email', 'friends', 'notify'] }), (req, res) => {
+  console.log('function will not be called')
+});
+
+app.get('/auth/vkontakte/callback', passport.authenticate('vkontakte', { failureRedirect: '/signin' } ), (req, res) => {
+  res.setHeader('x-access-token', res.locals.user.token);
+  res.setHeader('Authorization', 'Bearer ' + res.locals.user.token);
+  res.redirect(req.session.returnTo || '/');
 });
 
 app.listen(app.get('port'), () => {

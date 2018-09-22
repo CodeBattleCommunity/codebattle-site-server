@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema({
   passwordResetExpires: Date,
 
   google: String,
+  vkontakte: String,
+
+  tokens: Array,
 
   profile: {
     name: String,
