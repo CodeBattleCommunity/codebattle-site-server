@@ -4,6 +4,9 @@ const { Strategy: FacebookStrategy } = require('passport-facebook');
 const { Strategy: GitHubStrategy } = require('passport-github');
 const { OAuth2Strategy: GoogleStrategy } = require('passport-google-oauth');
 const { Strategy: VKontakteStrategy } = require('passport-vkontakte');
+const { Strategy: TwitterStrategy} = require('passport-twitter');
+
+
 
 const JWTStrategy = require('passport-jwt').Strategy,
       ExtractJwt = require('passport-jwt').ExtractJwt;
@@ -28,24 +31,27 @@ options.ignoreExpiration = false;
 
 passport.serializeUser(function(user, done) {    
   var token = jwt.sign({ id: user.id },process.env.SECRET_KEY,{ expiresIn: '300m' });
-  console.log("JWT user : " + user);
-  console.log("JWT token : " + token);
+  console.log("Serialize JWT user : " + user);
+  console.log("Serialize JWT token : " + token);
   done(null, { user: user, token: token} );
 });
 
 passport.deserializeUser(function(obj, done) {
-  done(null, obj);
+  console.log("Deserialize JWT user : " + obj.user.id);
+  console.log("Deserialize JWT token : " + obj.token);  
+  User.findById(obj.user.id, (err, user) => {
+    done(err, user);
+  });
 });
 
 passport.use(new JWTStrategy(options, function(payload, callback) {
-  console.log('JWT: ', payload)
   User.findById(payload.id, (err, user) => {
       if (err) {
         console.log('JWT: error: ', err)
         callback(err, false);
       } else if (!user) { 
         console.log('JWT: user not found')
-        callback(null, false); 
+        callback(null, false);
         return;
       }
       console.log('JWT: user is found')
@@ -59,11 +65,9 @@ passport.use(new JWTStrategy(options, function(payload, callback) {
 passport.use(new LocalStrategy({ usernameField: 'email' }, (email, password, done) => {
   User.findOne({ email: email.toLowerCase() }, (err, user) => {
     if (err) { return done(err); }
-
     if (!user) {
       return done(null, false, { msg: `Email ${email} not found`});
     }
-
     user.comparePassword(password, (err, isMatch) => {
       if (err) { return done(err); }
       if (isMatch) {
@@ -77,18 +81,23 @@ passport.use(new LocalStrategy({ usernameField: 'email' }, (email, password, don
 passport.use(new VKontakteStrategy({
   clientID:     process.env.VKONTAKTE_ID,
   clientSecret: process.env.VKONTAKTE_SECRET,
-  callbackURL:  process.env.VKONTAKTE_CALLBACK
+  callbackURL:  process.env.VKONTAKTE_CALLBACK,
+  passReqToCallback: true
 },
-function(accessToken, refreshToken, params, profile, done) {
-  User.findOne({ vkontakte: profile.id }, function (err, user) {
-    if (err) { return done(err); }
-    if (user) {
-      done(err, user);
-    } else {
-      User.findOne({email: params.email} , (err, existingEmailUser) => {
-        if (err) { return done(err); }
-        if (existingEmailUser) {
-          user.vkontakte = profile.id;
+function(req, accessToken, refreshToken, params, profile, done) {
+  if (req.user) {
+    User.findOne({ vkontakte: profile.id }, function (err, user) {
+      if (err) { 
+        return done(err); 
+      }
+      if (user) {
+        done(err);
+      } else {
+        User.findById(req.user.id, (err, user) => {
+          if (err) { 
+            return done(err); 
+          }
+          user.vkokntakte = profile.id;
           user.tokens.push({ kind: 'vkontakte', accessToken });
           user.profile.name = user.profile.name || profile.displayName;
           user.profile.gender = user.profile.gender || profile.gender;
@@ -96,7 +105,18 @@ function(accessToken, refreshToken, params, profile, done) {
           user.save((err) => {
             done(err, user);
           });
-        } else {
+        });
+      }
+    })
+  } else {
+    User.findOne({ vkontakte: profile.id }, function (err, user) {
+      if (err) { 
+        return done(err); 
+      }
+      if (user) {
+        done(err);
+      } else {
+        User.findOne({email: params.email} , (err, existingEmailUser) => {
           const user = new User();
           user.email = params.email;
           user.vkontakte = profile.id;
@@ -107,10 +127,10 @@ function(accessToken, refreshToken, params, profile, done) {
           user.save((err) => {
             done(err, user);
           });
-        }
-      })
-    }
-  })
+        })    
+      }
+    })
+  }  
 }))
 
 /*
@@ -136,7 +156,6 @@ passport.use(new GoogleStrategy({
           user.profile.gender = user.profile.gender || profile._json.gender;
           user.profile.picture = user.profile.picture || profile._json.image.url;
           user.save((err) => {
-            req.flash('info', { msg: 'Google account has been linked.' });
             done(err, user);
           });
         });
@@ -181,7 +200,6 @@ passport.use('github', new GitHubStrategy({
   if (req.user) {
       User.findOne({github: profile.id}, (err, existingUser) => {
           if (existingUser) {
-              req.flash('errors', {msg: 'There is already a GitHub account that belongs to you. Sign in with that account or delete it, then link it with your current account.'});
               done(err);
           } else {
               User.findById(req.user.id, (err, user) => {
@@ -195,7 +213,6 @@ passport.use('github', new GitHubStrategy({
                   user.profile.location = user.profile.location || profile._json.location;
                   user.profile.website = user.profile.website || profile._json.blog;
                   user.save((err) => {
-                      req.flash('info', {msg: 'GitHub account has been linked.'});
                       done(err, user);
                   });
               });
@@ -214,7 +231,6 @@ passport.use('github', new GitHubStrategy({
                   return done(err);
               }
               if (existingEmailUser) {
-                  req.flash('errors', {msg: 'There is already an account using this email address. Sign in to that account and link it with GitHub manually from Account Settings.'});
                   done(err);
               } else {
                   const user = new User();
@@ -250,7 +266,6 @@ passport.use('facebook', new FacebookStrategy({
               return done(err);
           }
           if (existingUser) {
-              req.flash('errors', {msg: 'There is already a Facebook account that belongs to you. Sign in with that account or delete it, then link it with your current account.'});
               done(err);
           } else {
               User.findById(req.user.id, (err, user) => {
@@ -263,7 +278,6 @@ passport.use('facebook', new FacebookStrategy({
                   user.profile.gender = user.profile.gender || profile._json.gender;
                   user.profile.picture = user.profile.picture || `https://graph.facebook.com/${profile.id}/picture?type=large`;
                   user.save((err) => {
-                      req.flash('info', {msg: 'Facebook account has been linked.'});
                       done(err, user);
                   });
               });
@@ -282,7 +296,6 @@ passport.use('facebook', new FacebookStrategy({
                   return done(err);
               }
               if (existingEmailUser) {
-                  req.flash('errors', {msg: 'There is already an account using this email address. Sign in to that account and link it with Facebook manually from Account Settings.'});
                   done(err);
               } else {
                   const user = new User();
@@ -297,6 +310,63 @@ passport.use('facebook', new FacebookStrategy({
                       done(err, user);
                   });
               }
+          });
+      });
+  }
+}));
+
+passport.use('twitter', new TwitterStrategy({
+  consumerKey: process.env.TWITTER_ID,
+  consumerSecret: process.env.TWITTER_SECRET,
+  callbackURL: process.env.TWITTER_CALLBACK,
+  passReqToCallback: true
+}, (req, accessToken, tokenSecret, profile, done) => {
+  if (req.user) {
+      User.findOne({twitter: profile.id}, (err, existingUser) => {
+          if (err) {
+              return done(err);
+          }
+          if (existingUser) {
+              done(err);
+          } else {
+              User.findById(req.user.id, (err, user) => {
+                  if (err) {
+                      return done(err);
+                  }
+                  user.twitter = profile.id;
+                  user.tokens.push({kind: 'twitter', accessToken, tokenSecret});
+                  user.profile.name = user.profile.name || profile.displayName;
+                  user.profile.location = user.profile.location || profile._json.location;
+                  user.profile.picture = user.profile.picture || profile._json.profile_image_url_https;
+                  user.save((err) => {
+                      if (err) {
+                          return done(err);
+                      }
+                      done(err, user);
+                  });
+              });
+          }
+      });
+  } else {
+      User.findOne({twitter: profile.id}, (err, existingUser) => {
+          if (err) {
+              return done(err);
+          }
+          if (existingUser) {
+              return done(null, existingUser);
+          }
+          const user = new User();
+          // Twitter will not provide an email address.  Period.
+          // But a person’s twitter username is guaranteed to be unique
+          // so we can "fake" a twitter email address as follows:
+          user.email = `${profile.username}@twitter.com`;
+          user.twitter = profile.id;
+          user.tokens.push({kind: 'twitter', accessToken, tokenSecret});
+          user.profile.name = profile.displayName;
+          user.profile.location = profile._json.location;
+          user.profile.picture = profile._json.profile_image_url_https;
+          user.save((err) => {
+              done(err, user);
           });
       });
   }

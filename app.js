@@ -9,7 +9,6 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const passport = require('passport');
 const errorHandler = require('errorhandler');
-const bearerToken = require('express-bearer-token');
 const authController = require('./controllers/auth');
 
 require('./config/passport');
@@ -63,33 +62,24 @@ if (process.env.NODE_ENV !== 'production') {
 /**
  * Express middleware
  */
+
 app.use((req, res, next) => {
-  console.log('Middleware is executed', req.user)
+  // After successful login, redirect back to the intended page
+  console.log('------- req user: ', req.user);
+  console.log('------- req.path: ', req.path);
+  if (req.query.callback || req.headers.referer) {
+    req.session.returnTo =  req.query.callback || req.headers.referer
+  }
+  
+  console.log('Return to: ', req.session.returnTo)
   const isAuthenticated = req.isAuthenticated();
   res.locals.isAuthenticated = isAuthenticated;
   res.locals.user = req.user;
   next();
 });
 
-app.use((req, res, next) => {
-  // After successful login, redirect back to the intended page
-  console.log(req.path)
-  if (!req.user &&
-      req.path !== '/signin' &&
-      req.path !== '/signup' &&
-      !req.path.match(/^\/auth/) &&
-      !req.path.match(/\./)) {
-    req.session.returnTo = req.originalUrl;
-  } else if (req.user && req.path.match(/^\/api/)) {
-    req.session.returnTo = req.originalUrl;
-  }
-  next();
-});
-
-
-
-app.post('/signup', authController.postSignUp);
-app.post('/signin', authController.postSignIn);
+app.post('/signup', passport.authenticate('jwt', { session: false }), authController.postSignUp);
+app.post('/signin', passport.authenticate('jwt', { session: false }), authController.postSignIn);
 app.get('/signout', passport.authenticate('jwt', { session: false }), authController.getSignOut);
 
 /* Google */
@@ -106,8 +96,9 @@ app.get('/auth/vkontakte', passport.authenticate('vkontakte',{ scope: ['status',
 });
 
 app.get('/auth/vkontakte/callback', passport.authenticate('vkontakte', { failureRedirect: '/signin' } ), (req, res) => {
-  res.setHeader('x-access-token', res.locals.user.token);
-  res.setHeader('Authorization', 'Bearer ' + res.locals.user.token);
+  res.setHeader('x-access-token', req.session.passport.user.token);
+  console.log(req.session)
+  res.status(200).send({});
   res.redirect(req.session.returnTo || '/');
 });
 

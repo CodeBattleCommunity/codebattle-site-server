@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "axios": "^0.18.0",
     "bcrypt-nodejs": "0.0.3",
     "body-parser": "^1.18.3",
     "chalk": "^2.4.1",
@@ -30,6 +31,7 @@
     "passport-google-oauth": "^1.0.0",
     "passport-jwt": "^4.0.0",
     "passport-local": "^1.0.0",
+    "passport-twitter": "^1.0.4",
     "passport-vkontakte": "^0.3.2"
   }
 }

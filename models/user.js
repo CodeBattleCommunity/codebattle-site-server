@@ -9,6 +9,9 @@ const userSchema = new mongoose.Schema({
 
   google: String,
   vkontakte: String,
+  github: String,
+  facebook: String,
+  twitter: String,
 
   tokens: Array,
 
